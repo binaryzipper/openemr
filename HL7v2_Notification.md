@@ -9,12 +9,28 @@ OpenEMR's patient/encounter lifecycle events, builds an HL7v2 ADT message, and
 delivers it to your endpoint as JSON:
 
 ```json
-{ "hl7_message": "<raw HL7v2 content>" }
+{ "message": "<raw HL7v2 content>" }
 ```
 
-Authentication uses the OAuth2 **client_credentials** grant: the module
-exchanges a client ID/secret for a bearer token (cached for the life of the
-token) and sends it as `Authorization: Bearer <token>`.
+Authentication uses **Microsoft Entra** (Azure AD) with the OAuth2
+**client_credentials** grant. The module builds the token endpoint from your
+tenant ID:
+
+```
+https://login.microsoftonline.com/<tenant-id>/oauth2/v2.0/token
+```
+
+and POSTs (as `application/x-www-form-urlencoded`):
+
+```
+client_id=<client-id>
+client_secret=<client-secret>
+scope=<scope, e.g. api://<client-id>/.default>
+grant_type=client_credentials
+```
+
+The returned `access_token` is cached for the life of the token and sent on the
+ADT request as `Authorization: Bearer <token>`.
 
 Delivery is **fire-and-forget** — failures are logged, never thrown, so a slow
 or unreachable endpoint can never block or break a clinical save.
@@ -50,7 +66,7 @@ interface/modules/custom_modules/oe-module-adt-notifier/
 └── src/
     ├── Bootstrap.php                     # Registers Globals settings + event subscriber
     ├── GlobalConfig.php                  # Reads module settings from the globals bag
-    ├── Client/AdtHttpClient.php          # OAuth token + POST {"hl7_message": ...}
+    ├── Client/AdtHttpClient.php          # Entra token + POST {"message": ...}
     ├── Hl7/AdtMessageBuilder.php         # Builds MSH/EVN/PID/PV1 for A01/A03/A04/A08
     └── EventSubscriber/AdtNotifierSubscriber.php  # Maps events to ADT messages
 ```
@@ -94,10 +110,10 @@ Settings → General, then `docker compose down && docker compose up -d --wait`.
 
    | Setting                          | Description                                                  |
    | -------------------------------- | ------------------------------------------------------------ |
-   | ADT Endpoint URL                 | URL that receives the `{"hl7_message": "..."}` POST          |
-   | OAuth Token URL                  | OAuth2 token endpoint (client_credentials grant)             |
-   | OAuth Client ID / Client Secret  | Credentials issued by the receiving system (secret encrypted) |
-   | OAuth Scope                      | Optional; leave blank if not required                        |
+   | ADT Endpoint URL                 | URL that receives the `{"message": "..."}` POST              |
+   | Microsoft Entra Tenant ID        | Directory (tenant) ID; builds the `login.microsoftonline.com` token endpoint |
+   | Entra Client ID / Client Secret  | Application (client) ID and secret from the Entra app registration (secret encrypted) |
+   | OAuth Scope                      | Entra scope, typically `api://<client-id>/.default`          |
    | HL7 Sending/Receiving App & Facility | MSH-3 … MSH-6 values                                     |
    | HL7 Processing ID (MSH-11)       | `P` production or `T` test/training                          |
    | Send patient ADT (A04/A08)       | Toggle patient create/update notifications                   |
@@ -105,14 +121,14 @@ Settings → General, then `docker compose down && docker compose up -d --wait`.
 
 5. **Log out and back in** so the menu/subscriber wiring reloads.
 
-The module stays inert until the endpoint URL, token URL, client ID, and client
+The module stays inert until the endpoint URL, tenant ID, client ID, and client
 secret are all set.
 
 ---
 
 ## Functional test
 
-- Create a new patient → endpoint receives a POST with an `ADT^A04` message.
+- Create a new patient → endpoint receives a POST `{"message": "MSH|...ADT^A04..."}`.
 - Edit a patient's demographics → `ADT^A08`.
 - (If encounter events enabled) create an encounter → `ADT^A01`; set a discharge
   disposition and save → `ADT^A03`.

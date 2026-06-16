@@ -3,10 +3,11 @@
 /**
  * HTTP client for delivering ADT HL7v2 messages to an external endpoint.
  *
- * Acquires a bearer token via the OAuth2 client_credentials grant (caching it
- * for the life of the token) and POSTs the raw HL7 message wrapped as
- * {"hl7_message": "..."}. Delivery is best-effort: callers use this from a
- * fire-and-forget context and failures are logged, never thrown.
+ * Acquires a bearer token from Microsoft Entra via the OAuth2
+ * client_credentials grant (caching it for the life of the token) and POSTs the
+ * raw HL7 message wrapped as {"message": "..."}. Delivery is best-effort:
+ * callers use this from a fire-and-forget context and failures are logged,
+ * never thrown.
  *
  * @package   OpenEMR
  * @link      https://www.open-emr.org
@@ -71,7 +72,7 @@ class AdtHttpClient
                     'timeout' => self::REQUEST_TIMEOUT_SECONDS,
                 ])
                 ->asJson()
-                ->post($this->config->getApiUrl(), ['hl7_message' => $hl7Message]);
+                ->post($this->config->getApiUrl(), ['message' => $hl7Message]);
 
             $status = $response->status();
             if ($status >= 200 && $status < 300) {

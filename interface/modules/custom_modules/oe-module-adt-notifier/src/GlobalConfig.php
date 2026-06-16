@@ -23,7 +23,7 @@ use OpenEMR\Services\Globals\GlobalSetting;
 class GlobalConfig
 {
     public const CONFIG_API_URL = 'oe_adt_notifier_api_url';
-    public const CONFIG_TOKEN_URL = 'oe_adt_notifier_token_url';
+    public const CONFIG_TENANT_ID = 'oe_adt_notifier_tenant_id';
     public const CONFIG_CLIENT_ID = 'oe_adt_notifier_client_id';
     public const CONFIG_CLIENT_SECRET = 'oe_adt_notifier_client_secret';
     public const CONFIG_SCOPE = 'oe_adt_notifier_scope';
@@ -53,7 +53,7 @@ class GlobalConfig
      */
     public function isConfigured(): bool
     {
-        foreach ([self::CONFIG_API_URL, self::CONFIG_TOKEN_URL, self::CONFIG_CLIENT_ID] as $key) {
+        foreach ([self::CONFIG_API_URL, self::CONFIG_TENANT_ID, self::CONFIG_CLIENT_ID] as $key) {
             if (empty($this->getGlobalSetting($key))) {
                 return false;
             }
@@ -67,9 +67,22 @@ class GlobalConfig
         return (string) $this->getGlobalSetting(self::CONFIG_API_URL);
     }
 
+    public function getTenantId(): string
+    {
+        return trim((string) $this->getGlobalSetting(self::CONFIG_TENANT_ID));
+    }
+
+    /**
+     * Microsoft Entra (Azure AD) v2.0 token endpoint built from the tenant ID.
+     */
     public function getTokenUrl(): string
     {
-        return (string) $this->getGlobalSetting(self::CONFIG_TOKEN_URL);
+        $tenantId = $this->getTenantId();
+        if ($tenantId === '') {
+            return '';
+        }
+
+        return 'https://login.microsoftonline.com/' . rawurlencode($tenantId) . '/oauth2/v2.0/token';
     }
 
     public function getClientId(): string
@@ -146,31 +159,32 @@ class GlobalConfig
         return [
             self::CONFIG_API_URL => [
                 'title' => 'ADT Endpoint URL',
-                'description' => 'Full URL that receives the POST body {"hl7_message": "..."}.',
+                'description' => 'Full URL that receives the POST body {"message": "..."}.',
                 'type' => GlobalSetting::DATA_TYPE_TEXT,
                 'default' => '',
             ],
-            self::CONFIG_TOKEN_URL => [
-                'title' => 'OAuth Token URL',
-                'description' => 'OAuth2 token endpoint used for the client_credentials grant.',
+            self::CONFIG_TENANT_ID => [
+                'title' => 'Microsoft Entra Tenant ID',
+                'description' => 'Directory (tenant) ID; the token endpoint is built as '
+                    . 'https://login.microsoftonline.com/<tenant-id>/oauth2/v2.0/token.',
                 'type' => GlobalSetting::DATA_TYPE_TEXT,
                 'default' => '',
             ],
             self::CONFIG_CLIENT_ID => [
-                'title' => 'OAuth Client ID',
-                'description' => 'Client identifier issued by the receiving system.',
+                'title' => 'Entra Client ID',
+                'description' => 'Application (client) ID registered in Microsoft Entra.',
                 'type' => GlobalSetting::DATA_TYPE_TEXT,
                 'default' => '',
             ],
             self::CONFIG_CLIENT_SECRET => [
-                'title' => 'OAuth Client Secret',
-                'description' => 'Client secret issued by the receiving system (stored encrypted).',
+                'title' => 'Entra Client Secret',
+                'description' => 'Client secret value from the Entra app registration (stored encrypted).',
                 'type' => GlobalSetting::DATA_TYPE_ENCRYPTED,
                 'default' => '',
             ],
             self::CONFIG_SCOPE => [
                 'title' => 'OAuth Scope',
-                'description' => 'Optional scope requested with the token (leave blank if not required).',
+                'description' => 'Entra scope, typically api://<client-id>/.default or <app-id-uri>/.default.',
                 'type' => GlobalSetting::DATA_TYPE_TEXT,
                 'default' => '',
             ],
