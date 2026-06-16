@@ -59,6 +59,9 @@ class AdtHttpClient
      */
     public function sendMessage(string $hl7Message): bool
     {
+        $url = $this->config->getApiUrl();
+        $payload = ['message' => $hl7Message];
+
         try {
             $token = $this->getAccessToken();
             if ($token === '') {
@@ -66,25 +69,46 @@ class AdtHttpClient
                 return false;
             }
 
+            // Log the outgoing request (token masked) so a rejected message can
+            // be inspected end to end.
+            $this->logger->error('ADT notifier: sending ADT request', [
+                'url' => $url,
+                'authorization' => 'Bearer ' . $this->maskSecret($token),
+                'request_body' => $payload,
+            ]);
+
             $response = oeHttp::usingHeaders(['Authorization' => 'Bearer ' . $token])
                 ->setOptions([
                     'connect_timeout' => self::CONNECT_TIMEOUT_SECONDS,
                     'timeout' => self::REQUEST_TIMEOUT_SECONDS,
                 ])
                 ->asJson()
-                ->post($this->config->getApiUrl(), ['message' => $hl7Message]);
+                ->post($url, $payload);
 
             $status = $response->status();
+            $responseBody = $response->body();
+
+            $this->logger->error('ADT notifier: received ADT response', [
+                'status' => $status,
+                'response_headers' => $response->headers(),
+                'response_body' => $responseBody,
+            ]);
+
             if ($status >= 200 && $status < 300) {
                 return true;
             }
 
             $this->logger->error('ADT notifier: endpoint returned non-success status', [
+                'url' => $url,
                 'status' => $status,
+                'request_body' => $payload,
+                'response_body' => $responseBody,
             ]);
             return false;
         } catch (\Throwable $e) {
             $this->logger->error('ADT notifier: failed to deliver message', [
+                'url' => $url,
+                'request_body' => $payload,
                 'exception' => $e,
             ]);
             return false;
@@ -109,6 +133,14 @@ class AdtHttpClient
             $params['scope'] = $scope;
         }
 
+        $this->logger->error('ADT notifier: requesting Entra token', [
+            'token_url' => $this->config->getTokenUrl(),
+            'client_id' => $this->config->getClientId(),
+            'scope' => $scope,
+            'grant_type' => 'client_credentials',
+            'client_secret' => $this->maskSecret($this->config->getClientSecret()),
+        ]);
+
         $response = oeHttp::setOptions([
             'connect_timeout' => self::CONNECT_TIMEOUT_SECONDS,
             'timeout' => self::REQUEST_TIMEOUT_SECONDS,
@@ -119,6 +151,7 @@ class AdtHttpClient
         if ($response->status() < 200 || $response->status() >= 300) {
             $this->logger->error('ADT notifier: token request failed', [
                 'status' => $response->status(),
+                'response_body' => $response->body(),
             ]);
             return '';
         }
@@ -140,5 +173,22 @@ class AdtHttpClient
         ];
 
         return $token;
+    }
+
+    /**
+     * Reduce a secret to a non-reversible fingerprint for logs: first/last few
+     * characters plus length, never the full value.
+     */
+    private function maskSecret(string $secret): string
+    {
+        $length = strlen($secret);
+        if ($length === 0) {
+            return '(empty)';
+        }
+        if ($length <= 8) {
+            return '***(len=' . $length . ')';
+        }
+
+        return substr($secret, 0, 4) . '...' . substr($secret, -4) . '(len=' . $length . ')';
     }
 }
