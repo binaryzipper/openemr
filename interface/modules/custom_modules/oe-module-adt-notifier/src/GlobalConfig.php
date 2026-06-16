@@ -33,9 +33,11 @@ class GlobalConfig
     public const CONFIG_RECEIVING_APP = 'oe_adt_notifier_receiving_app';
     public const CONFIG_RECEIVING_FACILITY = 'oe_adt_notifier_receiving_facility';
     public const CONFIG_PROCESSING_ID = 'oe_adt_notifier_processing_id';
+    public const CONFIG_DEFAULT_LOCATION = 'oe_adt_notifier_default_location';
 
     public const CONFIG_ENABLE_PATIENT_EVENTS = 'oe_adt_notifier_enable_patient_events';
     public const CONFIG_ENABLE_ENCOUNTER_EVENTS = 'oe_adt_notifier_enable_encounter_events';
+    public const CONFIG_DEBUG_LOGGING = 'oe_adt_notifier_debug_logging';
 
     private readonly CryptoInterface $cryptoGen;
 
@@ -134,6 +136,15 @@ class GlobalConfig
         return $value === 'P' ? 'P' : 'T';
     }
 
+    /**
+     * PV1-3 assigned patient location used when no encounter-specific location
+     * is available (e.g. patient register/update messages).
+     */
+    public function getDefaultLocation(): string
+    {
+        return (string) ($this->getGlobalSetting(self::CONFIG_DEFAULT_LOCATION) ?: 'OPENEMR');
+    }
+
     public function isPatientEventsEnabled(): bool
     {
         return (bool) $this->getGlobalSetting(self::CONFIG_ENABLE_PATIENT_EVENTS);
@@ -142,6 +153,15 @@ class GlobalConfig
     public function isEncounterEventsEnabled(): bool
     {
         return (bool) $this->getGlobalSetting(self::CONFIG_ENABLE_ENCOUNTER_EVENTS);
+    }
+
+    /**
+     * When enabled, the client logs the full request/response trace at debug
+     * level (otherwise only failures are logged, at error level).
+     */
+    public function isDebugLoggingEnabled(): bool
+    {
+        return (bool) $this->getGlobalSetting(self::CONFIG_DEBUG_LOGGING);
     }
 
     public function getGlobalSetting(string $settingKey): mixed
@@ -218,6 +238,13 @@ class GlobalConfig
                 'type' => GlobalSetting::DATA_TYPE_TEXT,
                 'default' => 'T',
             ],
+            self::CONFIG_DEFAULT_LOCATION => [
+                'title' => 'Default Patient Location (PV1-3)',
+                'description' => 'Assigned patient location (PL) used when no encounter location is available. '
+                    . 'Accepts PointOfCare^Room^Bed; missing Room/Bed components default to "NA".',
+                'type' => GlobalSetting::DATA_TYPE_TEXT,
+                'default' => 'OPENEMR^NA^NA',
+            ],
             self::CONFIG_ENABLE_PATIENT_EVENTS => [
                 'title' => 'Send patient ADT (A04 register / A08 update)',
                 'description' => 'Emit ADT^A04 on patient creation and ADT^A08 on demographics update.',
@@ -227,6 +254,13 @@ class GlobalConfig
             self::CONFIG_ENABLE_ENCOUNTER_EVENTS => [
                 'title' => 'Send encounter ADT (A01 admit / A03 discharge)',
                 'description' => 'Emit ADT^A01 on encounter creation and ADT^A03 when a discharge disposition is set.',
+                'type' => GlobalSetting::DATA_TYPE_BOOL,
+                'default' => '',
+            ],
+            self::CONFIG_DEBUG_LOGGING => [
+                'title' => 'Debug logging',
+                'description' => 'Log the full request/response trace (debug level). Leave off in production; '
+                    . 'only delivery failures are logged otherwise.',
                 'type' => GlobalSetting::DATA_TYPE_BOOL,
                 'default' => '',
             ],

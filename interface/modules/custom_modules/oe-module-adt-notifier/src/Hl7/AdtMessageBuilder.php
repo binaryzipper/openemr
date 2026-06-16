@@ -38,11 +38,19 @@ class AdtMessageBuilder
      */
     public function buildPatientMessage(string $eventCode, array $patientData): string
     {
+        // Patient register/update messages have no encounter, so fall back to a
+        // default location and use the patient identifier as the visit number
+        // (PV1-3 and PV1-19 are required by common ADT validators).
+        $visitNumber = $this->str($patientData, 'pubpid') ?: $this->str($patientData, 'pid');
+
         $segments = [
             $this->buildMsh($eventCode),
             $this->buildEvn($eventCode),
             $this->buildPid($patientData),
-            $this->buildSegment(['PV1', '1', 'U']),
+            $this->buildPv1(
+                location: $this->config->getDefaultLocation(),
+                visitNumber: $visitNumber
+            ),
         ];
 
         return implode(self::SEGMENT_SEPARATOR, $segments);
@@ -56,11 +64,24 @@ class AdtMessageBuilder
      */
     public function buildEncounterMessage(string $eventCode, array $patientData, array $encounterData): string
     {
+        $admitDate = $this->dateTime($this->str($encounterData, 'date'));
+        $visitNumber = $this->str($encounterData, 'encounter') ?: $this->str($encounterData, 'eid');
+        if ($visitNumber === '') {
+            // Fall back to the patient identifier so PV1-19 is never empty.
+            $visitNumber = $this->str($patientData, 'pubpid') ?: $this->str($patientData, 'pid');
+        }
+
         $segments = [
             $this->buildMsh($eventCode),
             $this->buildEvn($eventCode),
             $this->buildPid($patientData),
-            $this->buildPv1($eventCode, $encounterData),
+            $this->buildPv1(
+                location: $this->str($encounterData, 'facility_name') ?: $this->config->getDefaultLocation(),
+                visitNumber: $visitNumber,
+                admitDate: $admitDate,
+                dischargeDate: $eventCode === 'A03' ? $admitDate : '',
+                dischargeDisposition: $this->str($encounterData, 'discharge_disposition')
+            ),
         ];
 
         return implode(self::SEGMENT_SEPARATOR, $segments);
@@ -149,24 +170,46 @@ class AdtMessageBuilder
         ]);
     }
 
-    /**
-     * @param array<string, mixed> $encounterData
-     */
-    private function buildPv1(string $eventCode, array $encounterData): string
-    {
-        $admitDate = $this->dateTime($this->str($encounterData, 'date'));
-        $dischargeDate = $eventCode === 'A03' ? $this->dateTime($this->str($encounterData, 'date')) : '';
-
+    private function buildPv1(
+        string $location,
+        string $visitNumber,
+        string $patientClass = 'O',
+        string $admitDate = '',
+        string $dischargeDate = '',
+        string $dischargeDisposition = '',
+    ): string {
         $fields = array_fill(0, 46, '');
         $fields[0] = 'PV1';
         $fields[1] = '1';
-        $fields[2] = 'O'; // PV1-2 patient class: outpatient
-        $fields[19] = $this->escape($this->str($encounterData, 'encounter')); // visit number
-        $fields[36] = $this->escape($this->str($encounterData, 'discharge_disposition'));
-        $fields[44] = $admitDate;
-        $fields[45] = $dischargeDate;
+        $fields[2] = $patientClass;                      // PV1-2  patient class (O = outpatient)
+        $fields[3] = $this->assignedLocation($location); // PV1-3  assigned patient location (PL: POC^Room^Bed)
+        $fields[19] = $this->escape($visitNumber);       // PV1-19 visit number
+        $fields[36] = $this->escape($dischargeDisposition); // PV1-36 discharge disposition
+        $fields[44] = $admitDate;                        // PV1-44 admit date/time
+        $fields[45] = $dischargeDate;                    // PV1-45 discharge date/time
 
         return $this->buildSegment($fields);
+    }
+
+    /**
+     * Build PV1-3 as a PL (person location): Point of Care ^ Room ^ Bed.
+     *
+     * The configured value may already contain components (e.g.
+     * "WARD1^101^A"); any missing Room/Bed components are filled with "NA" so
+     * validators that require all three are satisfied.
+     */
+    private function assignedLocation(string $location): string
+    {
+        $parts = explode(self::COMPONENT_SEPARATOR, $location);
+        $pointOfCare = trim($parts[0] ?? '') ?: 'OPENEMR';
+        $room = trim($parts[1] ?? '') ?: 'NA';
+        $bed = trim($parts[2] ?? '') ?: 'NA';
+
+        return $this->field(
+            $this->escape($pointOfCare),
+            $this->escape($room),
+            $this->escape($bed)
+        );
     }
 
     /**

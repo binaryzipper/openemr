@@ -18,6 +18,7 @@ declare(strict_types=1);
 
 namespace OpenEMR\Modules\AdtNotifier\Client;
 
+use Monolog\Logger;
 use OpenEMR\Common\Http\oeHttp;
 use OpenEMR\Common\Logging\SystemLogger;
 use OpenEMR\Modules\AdtNotifier\GlobalConfig;
@@ -51,7 +52,11 @@ class AdtHttpClient
         private readonly GlobalConfig $config,
         ?LoggerInterface $logger = null,
     ) {
-        $this->logger = $logger ?? new SystemLogger();
+        // When debug logging is enabled, force a debug-level logger so the
+        // trace lines emit regardless of the global system_error_logging level.
+        $this->logger = $logger ?? new SystemLogger(
+            $config->isDebugLoggingEnabled() ? Logger::DEBUG : null
+        );
     }
 
     /**
@@ -71,7 +76,7 @@ class AdtHttpClient
 
             // Log the outgoing request (token masked) so a rejected message can
             // be inspected end to end.
-            $this->logger->error('ADT notifier: sending ADT request', [
+            $this->logger->debug('ADT notifier: sending ADT request', [
                 'url' => $url,
                 'authorization' => 'Bearer ' . $this->maskSecret($token),
                 'request_body' => $payload,
@@ -88,7 +93,7 @@ class AdtHttpClient
             $status = $response->status();
             $responseBody = $response->body();
 
-            $this->logger->error('ADT notifier: received ADT response', [
+            $this->logger->debug('ADT notifier: received ADT response', [
                 'status' => $status,
                 'response_headers' => $response->headers(),
                 'response_body' => $responseBody,
@@ -133,7 +138,7 @@ class AdtHttpClient
             $params['scope'] = $scope;
         }
 
-        $this->logger->error('ADT notifier: requesting Entra token', [
+        $this->logger->debug('ADT notifier: requesting Entra token', [
             'token_url' => $this->config->getTokenUrl(),
             'client_id' => $this->config->getClientId(),
             'scope' => $scope,
